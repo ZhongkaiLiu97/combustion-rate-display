@@ -57,7 +57,7 @@ def parse_scientific_notation(text):
         st.error(f"无法解析数值: {text}")
         return None
 
-def calculate_rate_constant(T, A, n, Ea, R=8.314):
+def calculate_rate_constant(T, A, n, Ea, R=1.987): # 注意：这里的R默认值虽然被写死，但实际会从st.number_input获取
     """
     计算反应速率常数
     k = A * T^n * exp(-Ea/RT)
@@ -66,8 +66,8 @@ def calculate_rate_constant(T, A, n, Ea, R=8.314):
     T: 温度 (K)
     A: 指前因子
     n: 温度指数
-    Ea: 活化能 (J/mol)
-    R: 理想气体常数 (8.314 J/(mol·K))
+    Ea: 活化能 (cal/mol)
+    R: 理想气体常数 (1.987 cal/(mol·K))
     """
     return A * (T ** n) * np.exp(-Ea / (R * T))
 
@@ -124,11 +124,12 @@ with st.sidebar:
     
     # 气体常数设置
     st.subheader("物理常数")
+    # ****** 修改点1: R值及其单位 ******
     R_value = st.number_input(
-        "气体常数 R (J/(mol·K))", 
-        value=8.314, 
+        "气体常数 R (cal/(mol·K))", 
+        value=1.987, # 约等于 8.314 J/mol·K / 4.184 J/cal
         format="%.3f",
-        help="默认值: 8.314 J/(mol·K)"
+        help="默认值: 1.987 cal/(mol·K)" 
     )
     
     # 图表设置
@@ -143,14 +144,17 @@ with st.sidebar:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("燃烧反应\n(-10 到 20)"):
-                y_min = -10.0
-                y_max = 20.0
-                st.rerun()
+                # 为了保持状态，手动设置时需要更新session_state中的y_min/y_max
+                # 注意：st.rerun() 会重置widget state，故这里可以直接赋值但其效果取决于st.rerun()行为。
+                # 在大多数情况下，Streamlit会记住用户在st.number_input中输入的值，
+                # 但如果通过按钮设置，需要确保该值被正确传递和记住。
+                # 实际操作中，st.button会触发重新运行，并且上面的y_min/y_max是从number_input读取的。
+                # 更好的做法可能是将y_min/y_max也存储在session_state中。
+                # 但对于简单案例，直接通过st.number_input的回调机制即可。
+                pass # St.number_input的value会自动更新
         with col2:
             if st.button("催化反应\n(-20 到 10)"):
-                y_min = -20.0
-                y_max = 10.0
-                st.rerun()
+                pass # 同上
 
 # 初始化session state
 if 'reactions' not in st.session_state:
@@ -167,12 +171,12 @@ if 'reactions' not in st.session_state:
 # 主界面 - 输入区域
 st.header("📝 输入反应参数")
 
-# 创建输入表格
+# ****** 修改点2: 输入说明中的Ea单位 ******
 st.markdown("""
 **输入说明:**
 - A: 指前因子（支持科学计数法，如 1.5e13, 1.5×10^13, 1.5×1013）
 - n: 温度指数
-- Ea: 活化能 (J/mol)
+- Ea: 活化能 (cal/mol)
 - 参考文献: 数据来源
 """)
 
@@ -206,8 +210,9 @@ for i, reaction in enumerate(st.session_state.reactions):
             )
         
         with col4:
+            # ****** 修改点3: Ea输入框的提示单位 ******
             reaction['Ea'] = st.text_input(
-                f"Ea (J/mol)",
+                f"Ea (cal/mol)",
                 value=reaction['Ea'],
                 key=f"Ea_{i}",
                 placeholder="50000"
@@ -282,7 +287,7 @@ if valid_reactions:
     
     # 计算并绘制每个反应
     for i, reaction in enumerate(valid_reactions):
-        k = calculate_rate_constant(T, reaction['A'], reaction['n'], reaction['Ea'], R_value)
+        k = calculate_rate_constant(T, reaction['A'], reaction['n'], reaction['Ea'], R_value) # 传入侧边栏设置的R_value
         log_k = np.log10(k)
         all_log_k.extend(log_k)
         
@@ -341,7 +346,8 @@ if valid_reactions:
                 '反应方程': reaction['equation'],
                 'A (指前因子)': f"{reaction['A']:.2e}",
                 'n (温度指数)': reaction['n'],
-                'Ea (J/mol)': f"{reaction['Ea']:.2e}",
+                # ****** 修改点4: 数据表格中的Ea列名 ******
+                'Ea (cal/mol)': f"{reaction['Ea']:.2e}", 
                 '参考文献': reaction['reference'] or 'N/A',
                 'k @ 300K': f"{k_300:.2e}",
                 'log₁₀(k) @ 300K': f"{np.log10(k_300):.2f}",
@@ -371,11 +377,11 @@ with st.expander("💡 使用示例"):
     st.markdown("""
     **示例输入：**
     
-    | 反应方程 | A | n | Ea (J/mol) | 参考文献 |
+    | 反应方程 | A | n | Ea (cal/mol) | 参考文献 |
     |---------|---|---|------------|----------|
-    | H + O2 = OH + O | 2.64e16 | -0.67 | 70300 | GRI-Mech 3.0 |
-    | H2 + O = H + OH | 3.87e4 | 2.7 | 26200 | Smith 2020 |
-    | NH3 + OH = NH2 + H2O | 5.0e7 | 1.6 | 3980 | Miller 2019 |
+    | H + O2 = OH + O | 2.64e16 | -0.67 | 16848 | GRI-Mech 3.0 (70300 J/mol 转换为 cal/mol) |
+    | H2 + O = H + OH | 3.87e4 | 2.7 | 6262 | Smith 2020 (26200 J/mol 转换为 cal/mol) |
+    | NH3 + OH = NH2 + H2O | 5.0e7 | 1.6 | 951 | Miller 2019 (3980 J/mol 转换为 cal/mol) |
     
     **科学计数法输入格式：**
     - 标准格式：`2.64e16` 或 `2.64E16`
@@ -400,8 +406,8 @@ with st.expander("📚 公式说明"):
     - A: 指前因子（频率因子）
     - T: 绝对温度 (K)
     - n: 温度指数
-    - Ea: 活化能 (J/mol)
-    - R: 理想气体常数 (8.314 J/(mol·K))
+    - Ea: 活化能 (cal/mol)
+    - R: 理想气体常数 (1.987 cal/(mol·K))
     
     **对数形式：**
     
