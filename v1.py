@@ -57,7 +57,7 @@ def parse_scientific_notation(text):
         st.error(f"无法解析数值: {text}")
         return None
 
-def calculate_rate_constant(T, A, n, Ea, R=1.987): # 注意：这里的R默认值虽然被写死，但实际会从st.number_input获取
+def calculate_rate_constant(T, A, n, Ea, R=1.987):
     """
     计算反应速率常数
     k = A * T^n * exp(-Ea/RT)
@@ -92,6 +92,14 @@ with st.sidebar:
     with col2:
         T_max = st.number_input("最大温度 (K)", value=2000, min_value=100, max_value=5000)
     
+    # 横轴类型选择
+    st.subheader("横轴设置")
+    x_axis_type = st.radio(
+        "横轴类型",
+        ["温度 T (K)", "1000/T (K⁻¹)"],
+        help="选择横轴显示温度T或1000/T（Arrhenius图）"
+    )
+    
     # Y轴范围设置
     st.subheader("Y轴范围 (log₁₀(k))")
     
@@ -124,10 +132,9 @@ with st.sidebar:
     
     # 气体常数设置
     st.subheader("物理常数")
-    # ****** 修改点1: R值及其单位 ******
     R_value = st.number_input(
         "气体常数 R (cal/(mol·K))", 
-        value=1.987, # 约等于 8.314 J/mol·K / 4.184 J/cal
+        value=1.987,
         format="%.3f",
         help="默认值: 1.987 cal/(mol·K)" 
     )
@@ -144,17 +151,14 @@ with st.sidebar:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("燃烧反应\n(-10 到 20)"):
-                # 为了保持状态，手动设置时需要更新session_state中的y_min/y_max
-                # 注意：st.rerun() 会重置widget state，故这里可以直接赋值但其效果取决于st.rerun()行为。
-                # 在大多数情况下，Streamlit会记住用户在st.number_input中输入的值，
-                # 但如果通过按钮设置，需要确保该值被正确传递和记住。
-                # 实际操作中，st.button会触发重新运行，并且上面的y_min/y_max是从number_input读取的。
-                # 更好的做法可能是将y_min/y_max也存储在session_state中。
-                # 但对于简单案例，直接通过st.number_input的回调机制即可。
-                pass # St.number_input的value会自动更新
+                y_min = -10.0
+                y_max = 20.0
+                st.rerun()
         with col2:
             if st.button("催化反应\n(-20 到 10)"):
-                pass # 同上
+                y_min = -20.0
+                y_max = 10.0
+                st.rerun()
 
 # 初始化session state
 if 'reactions' not in st.session_state:
@@ -171,7 +175,6 @@ if 'reactions' not in st.session_state:
 # 主界面 - 输入区域
 st.header("📝 输入反应参数")
 
-# ****** 修改点2: 输入说明中的Ea单位 ******
 st.markdown("""
 **输入说明:**
 - A: 指前因子（支持科学计数法，如 1.5e13, 1.5×10^13, 1.5×1013）
@@ -210,7 +213,6 @@ for i, reaction in enumerate(st.session_state.reactions):
             )
         
         with col4:
-            # ****** 修改点3: Ea输入框的提示单位 ******
             reaction['Ea'] = st.text_input(
                 f"Ea (cal/mol)",
                 value=reaction['Ea'],
@@ -287,7 +289,7 @@ if valid_reactions:
     
     # 计算并绘制每个反应
     for i, reaction in enumerate(valid_reactions):
-        k = calculate_rate_constant(T, reaction['A'], reaction['n'], reaction['Ea'], R_value) # 传入侧边栏设置的R_value
+        k = calculate_rate_constant(T, reaction['A'], reaction['n'], reaction['Ea'], R_value)
         log_k = np.log10(k)
         all_log_k.extend(log_k)
         
@@ -296,23 +298,52 @@ if valid_reactions:
         if reaction['reference']:
             label += f" ({reaction['reference']})"
         
+        # 根据横轴类型选择x数据
+        if x_axis_type == "1000/T (K⁻¹)":
+            x_data = 1000.0 / T
+        else:
+            x_data = T
+        
         # 绘制曲线
         color = generate_color(i)
-        ax.plot(T, log_k, label=label, linewidth=line_width, color=color)
+        ax.plot(x_data, log_k, label=label, linewidth=line_width, color=color)
     
     # 设置图表格式
-    ax.set_xlabel('Temperature (K)', fontsize=12)
+    if x_axis_type == "1000/T (K⁻¹)":
+        ax.set_xlabel('1000/T (K⁻¹)', fontsize=12)
+        # 设置x轴范围（注意1000/T时，大T对应小x值）
+        ax.set_xlim(1000.0/T_max, 1000.0/T_min)
+        
+        # 添加第二个x轴显示温度值
+        ax2 = ax.twiny()
+        ax2.set_xlim(ax.get_xlim())
+        
+        # 选择一些温度值作为刻度
+        temp_ticks = [300, 400, 500, 700, 1000, 1500, 2000, 2500, 3000]
+        temp_ticks = [t for t in temp_ticks if T_min <= t <= T_max]
+        inv_temp_ticks = [1000.0/t for t in temp_ticks]
+        
+        ax2.set_xticks(inv_temp_ticks)
+        ax2.set_xticklabels([f'{t}K' for t in temp_ticks])
+        ax2.set_xlabel('Temperature (K)', fontsize=10, color='gray')
+        ax2.tick_params(axis='x', labelsize=8, colors='gray')
+    else:
+        ax.set_xlabel('Temperature (K)', fontsize=12)
+        ax.set_xlim(T_min, T_max)
+    
     ax.set_ylabel('log₁₀(k)', fontsize=12)
-    ax.set_title('Chemical Reaction Rate Constants vs Temperature', fontsize=14, fontweight='bold')
+    
+    # 根据横轴类型调整标题
+    if x_axis_type == "1000/T (K⁻¹)":
+        ax.set_title('Arrhenius Plot: Chemical Reaction Rate Constants', fontsize=14, fontweight='bold')
+    else:
+        ax.set_title('Chemical Reaction Rate Constants vs Temperature', fontsize=14, fontweight='bold')
     
     if show_grid:
         ax.grid(True, alpha=0.3, linestyle='--')
     
     if show_legend and len(valid_reactions) > 0:
         ax.legend(loc='best', framealpha=0.9)
-    
-    # 设置坐标轴范围
-    ax.set_xlim(T_min, T_max)
     
     # 设置Y轴范围
     if y_axis_mode == "手动设置":
@@ -346,7 +377,6 @@ if valid_reactions:
                 '反应方程': reaction['equation'],
                 'A (指前因子)': f"{reaction['A']:.2e}",
                 'n (温度指数)': reaction['n'],
-                # ****** 修改点4: 数据表格中的Ea列名 ******
                 'Ea (cal/mol)': f"{reaction['Ea']:.2e}", 
                 '参考文献': reaction['reference'] or 'N/A',
                 'k @ 300K': f"{k_300:.2e}",
@@ -379,14 +409,20 @@ with st.expander("💡 使用示例"):
     
     | 反应方程 | A | n | Ea (cal/mol) | 参考文献 |
     |---------|---|---|------------|----------|
-    | H + O2 = OH + O | 2.64e16 | -0.67 | 16848 | GRI-Mech 3.0 (70300 J/mol 转换为 cal/mol) |
-    | H2 + O = H + OH | 3.87e4 | 2.7 | 6262 | Smith 2020 (26200 J/mol 转换为 cal/mol) |
-    | NH3 + OH = NH2 + H2O | 5.0e7 | 1.6 | 951 | Miller 2019 (3980 J/mol 转换为 cal/mol) |
+    | H + O2 = OH + O | 2.64e16 | -0.67 | 16800 | GRI-Mech 3.0 |
+    | H2 + O = H + OH | 3.87e4 | 2.7 | 6260 | Smith 2020 |
+    | NH3 + OH = NH2 + H2O | 5.0e7 | 1.6 | 955 | Miller 2019 |
+    | H2NO + HO2 = HNO + H2O2 | 5.41e4 | 2.16 | -3597 | Stagni 2023 |
+    | H2NO + O2 = HNO + HO2 | 1.73e5 | 2.19 | 18010 | Stagni 2023 |
     
     **科学计数法输入格式：**
     - 标准格式：`2.64e16` 或 `2.64E16`
     - 乘号格式：`2.64×10^16` 或 `2.64×1016`
     - 星号格式：`2.64*10^16`
+    
+    **横轴设置：**
+    - **温度 T (K)**：直接显示温度，适合观察速率常数随温度的变化趋势
+    - **1000/T (K⁻¹)**：Arrhenius图，可以从直线斜率计算活化能，适合动力学分析
     
     **Y轴范围调节：**
     - 在左侧边栏中可以选择"自动"或"手动设置"Y轴范围
@@ -412,4 +448,13 @@ with st.expander("📚 公式说明"):
     **对数形式：**
     
     $$\\log_{10}(k) = \\log_{10}(A) + n\\log_{10}(T) - \\frac{E_a}{2.303RT}$$
+    
+    **Arrhenius图（1000/T为横轴）：**
+    
+    当 n = 0 时，以 1000/T 为横轴，log₁₀(k) 为纵轴，可得到直线：
+    
+    $$\\log_{10}(k) = \\log_{10}(A) - \\frac{E_a}{2.303R} \\cdot \\frac{1000}{T} \\cdot \\frac{1}{1000}$$
+    
+    从直线斜率可以计算活化能：
+    $$E_a = -2.303R \\times 1000 \\times \\text{斜率}$$
     """)
