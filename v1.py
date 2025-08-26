@@ -100,6 +100,14 @@ with st.sidebar:
         help="选择横轴显示温度T或1000/T（Arrhenius图）"
     )
     
+    # Duplicate反应显示选项
+    st.subheader("Duplicate反应显示")
+    show_duplicate_components = st.checkbox(
+        "显示duplicate反应的各分量",
+        value=False,
+        help="勾选后会用虚线显示duplicate反应的各个分量"
+    )
+    
     # Y轴范围设置
     st.subheader("Y轴范围 (log₁₀(k))")
     
@@ -144,137 +152,180 @@ with st.sidebar:
     show_grid = st.checkbox("显示网格", value=True)
     show_legend = st.checkbox("显示图例", value=True)
     line_width = st.slider("线条宽度", min_value=1, max_value=5, value=2)
-    
-    # 添加快速Y轴范围调整按钮
-    if y_axis_mode == "手动设置":
-        st.subheader("快速设置")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("燃烧反应\n(-10 到 20)"):
-                y_min = -10.0
-                y_max = 20.0
-                st.rerun()
-        with col2:
-            if st.button("催化反应\n(-20 到 10)"):
-                y_min = -20.0
-                y_max = 10.0
-                st.rerun()
 
 # 初始化session state
 if 'reactions' not in st.session_state:
-    st.session_state.reactions = [
-        {
-            'equation': '',
-            'A': '',
-            'n': '',
-            'Ea': '',
-            'reference': ''
-        }
-    ]
+    st.session_state.reactions = []
 
 # 主界面 - 输入区域
 st.header("📝 输入反应参数")
 
 st.markdown("""
 **输入说明:**
-- A: 指前因子（支持科学计数法，如 1.5e13, 1.5×10^13, 1.5×1013）
+- 点击"添加单一速率反应"添加普通反应（一组A、n、Ea参数）
+- 点击"添加Duplicate反应"添加具有多个速率通道的反应（多组A、n、Ea参数）
+- A: 指前因子（支持科学计数法，如 1.5e13, 1.5×10^13）
 - n: 温度指数
 - Ea: 活化能 (cal/mol)
-- 参考文献: 数据来源
 """)
 
-# 动态创建输入行
+# 添加反应按钮
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("➕ 添加单一速率反应", type="primary", use_container_width=True):
+        st.session_state.reactions.append({
+            'type': 'single',
+            'equation': '',
+            'reference': '',
+            'parameters': [{'A': '', 'n': '', 'Ea': ''}]
+        })
+        st.rerun()
+
+with col2:
+    if st.button("➕ 添加Duplicate反应", type="secondary", use_container_width=True):
+        st.session_state.reactions.append({
+            'type': 'duplicate',
+            'equation': '',
+            'reference': '',
+            'parameters': [{'A': '', 'n': '', 'Ea': ''}, {'A': '', 'n': '', 'Ea': ''}]
+        })
+        st.rerun()
+
+# 显示所有反应
 for i, reaction in enumerate(st.session_state.reactions):
     with st.container():
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([3, 2, 1.5, 2, 2, 1, 1])
+        # 反应标题栏
+        col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
         
         with col1:
+            if reaction['type'] == 'single':
+                st.markdown(f"**反应 {i+1}** (单一速率)")
+            else:
+                st.markdown(f"**反应 {i+1}** (Duplicate - {len(reaction['parameters'])}个通道)")
+        
+        with col2:
+            pass
+        
+        with col3:
+            if reaction['type'] == 'duplicate':
+                if st.button("➕通道", key=f"add_channel_{i}", help="添加新的速率通道"):
+                    reaction['parameters'].append({'A': '', 'n': '', 'Ea': ''})
+                    st.rerun()
+        
+        with col4:
+            if st.button("🗑️", key=f"del_reaction_{i}", help="删除整个反应"):
+                st.session_state.reactions.pop(i)
+                st.rerun()
+        
+        # 反应方程和参考文献
+        col1, col2 = st.columns([3, 2])
+        with col1:
             reaction['equation'] = st.text_input(
-                f"反应方程 {i+1}",
+                "反应方程",
                 value=reaction['equation'],
                 key=f"eq_{i}",
                 placeholder="如: H + O2 = OH + O"
             )
-        
         with col2:
-            reaction['A'] = st.text_input(
-                f"A",
-                value=reaction['A'],
-                key=f"A_{i}",
-                placeholder="1.5e13"
-            )
-        
-        with col3:
-            reaction['n'] = st.text_input(
-                f"n",
-                value=reaction['n'],
-                key=f"n_{i}",
-                placeholder="0"
-            )
-        
-        with col4:
-            reaction['Ea'] = st.text_input(
-                f"Ea (cal/mol)",
-                value=reaction['Ea'],
-                key=f"Ea_{i}",
-                placeholder="50000"
-            )
-        
-        with col5:
             reaction['reference'] = st.text_input(
-                f"参考文献",
+                "参考文献",
                 value=reaction['reference'],
                 key=f"ref_{i}",
                 placeholder="Smith 2020"
             )
         
-        with col6:
-            if st.button("➕", key=f"add_{i}", help="在下方添加新反应"):
-                st.session_state.reactions.insert(i+1, {
-                    'equation': '',
-                    'A': '',
-                    'n': '',
-                    'Ea': '',
-                    'reference': ''
-                })
-                st.rerun()
+        # 速率参数
+        if reaction['type'] == 'single':
+            # 单一速率反应
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                reaction['parameters'][0]['A'] = st.text_input(
+                    "A (指前因子)",
+                    value=reaction['parameters'][0]['A'],
+                    key=f"A_{i}_0",
+                    placeholder="1.5e13"
+                )
+            with col2:
+                reaction['parameters'][0]['n'] = st.text_input(
+                    "n (温度指数)",
+                    value=reaction['parameters'][0]['n'],
+                    key=f"n_{i}_0",
+                    placeholder="0"
+                )
+            with col3:
+                reaction['parameters'][0]['Ea'] = st.text_input(
+                    "Ea (cal/mol)",
+                    value=reaction['parameters'][0]['Ea'],
+                    key=f"Ea_{i}_0",
+                    placeholder="50000"
+                )
+        else:
+            # Duplicate反应
+            st.markdown("**速率通道：**")
+            for j, params in enumerate(reaction['parameters']):
+                col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 2, 1])
+                with col0:
+                    st.write(f"{j+1}.")
+                with col1:
+                    params['A'] = st.text_input(
+                        f"A",
+                        value=params['A'],
+                        key=f"A_{i}_{j}",
+                        placeholder="1.5e13",
+                        label_visibility="collapsed"
+                    )
+                with col2:
+                    params['n'] = st.text_input(
+                        f"n",
+                        value=params['n'],
+                        key=f"n_{i}_{j}",
+                        placeholder="0",
+                        label_visibility="collapsed"
+                    )
+                with col3:
+                    params['Ea'] = st.text_input(
+                        f"Ea",
+                        value=params['Ea'],
+                        key=f"Ea_{i}_{j}",
+                        placeholder="50000",
+                        label_visibility="collapsed"
+                    )
+                with col4:
+                    if len(reaction['parameters']) > 1:
+                        if st.button("❌", key=f"del_param_{i}_{j}", help="删除此通道"):
+                            reaction['parameters'].pop(j)
+                            st.rerun()
         
-        with col7:
-            if len(st.session_state.reactions) > 1:
-                if st.button("❌", key=f"del_{i}", help="删除此反应"):
-                    st.session_state.reactions.pop(i)
-                    st.rerun()
-
-# 添加新反应按钮
-if st.button("➕ 添加新反应", type="primary"):
-    st.session_state.reactions.append({
-        'equation': '',
-        'A': '',
-        'n': '',
-        'Ea': '',
-        'reference': ''
-    })
-    st.rerun()
+        st.divider()
 
 # 计算和绘图
 st.header("📊 反应速率常数对比")
 
 # 准备有效的反应数据
 valid_reactions = []
-for i, reaction in enumerate(st.session_state.reactions):
-    if reaction['equation'] and reaction['A'] and reaction['n'] and reaction['Ea']:
-        A_val = parse_scientific_notation(reaction['A'])
-        n_val = parse_scientific_notation(reaction['n'])
-        Ea_val = parse_scientific_notation(reaction['Ea'])
+for reaction in st.session_state.reactions:
+    if reaction['equation']:
+        # 检查参数完整性
+        valid_params = []
+        for params in reaction['parameters']:
+            if params['A'] and params['n'] and params['Ea']:
+                A_val = parse_scientific_notation(params['A'])
+                n_val = parse_scientific_notation(params['n'])
+                Ea_val = parse_scientific_notation(params['Ea'])
+                
+                if A_val is not None and n_val is not None and Ea_val is not None:
+                    valid_params.append({
+                        'A': A_val,
+                        'n': n_val,
+                        'Ea': Ea_val
+                    })
         
-        if A_val is not None and n_val is not None and Ea_val is not None:
+        if valid_params:
             valid_reactions.append({
+                'type': reaction['type'],
                 'equation': reaction['equation'],
-                'A': A_val,
-                'n': n_val,
-                'Ea': Ea_val,
                 'reference': reaction['reference'],
-                'index': i
+                'parameters': valid_params
             })
 
 if valid_reactions:
@@ -289,29 +340,70 @@ if valid_reactions:
     
     # 计算并绘制每个反应
     for i, reaction in enumerate(valid_reactions):
-        k = calculate_rate_constant(T, reaction['A'], reaction['n'], reaction['Ea'], R_value)
-        log_k = np.log10(k)
-        all_log_k.extend(log_k)
-        
-        # 创建标签
-        label = f"{reaction['equation']}"
-        if reaction['reference']:
-            label += f" ({reaction['reference']})"
-        
-        # 根据横轴类型选择x数据
-        if x_axis_type == "1000/T (K⁻¹)":
-            x_data = 1000.0 / T
-        else:
-            x_data = T
-        
-        # 绘制曲线
         color = generate_color(i)
-        ax.plot(x_data, log_k, label=label, linewidth=line_width, color=color)
+        
+        if reaction['type'] == 'single':
+            # 单一速率反应
+            params = reaction['parameters'][0]
+            k = calculate_rate_constant(T, params['A'], params['n'], params['Ea'], R_value)
+            log_k = np.log10(k)
+            all_log_k.extend(log_k)
+            
+            # 创建标签
+            label = f"{reaction['equation']}"
+            if reaction['reference']:
+                label += f" [{reaction['reference']}]"
+            
+            # 根据横轴类型选择x数据
+            if x_axis_type == "1000/T (K⁻¹)":
+                x_data = 1000.0 / T
+            else:
+                x_data = T
+            
+            # 绘制曲线
+            ax.plot(x_data, log_k, label=label, linewidth=line_width, color=color)
+            
+        else:
+            # Duplicate反应
+            # 计算各分量速率常数
+            k_components = []
+            for params in reaction['parameters']:
+                k = calculate_rate_constant(T, params['A'], params['n'], params['Ea'], R_value)
+                k_components.append(k)
+            
+            # 计算总速率常数
+            k_total = np.sum(k_components, axis=0)
+            log_k_total = np.log10(k_total)
+            all_log_k.extend(log_k_total)
+            
+            # 创建标签
+            label = f"{reaction['equation']} (sum of {len(reaction['parameters'])} channels)"
+            if reaction['reference']:
+                label += f" [{reaction['reference']}]"
+            
+            # 根据横轴类型选择x数据
+            if x_axis_type == "1000/T (K⁻¹)":
+                x_data = 1000.0 / T
+            else:
+                x_data = T
+            
+            # 绘制总速率常数
+            ax.plot(x_data, log_k_total, label=label, linewidth=line_width, color=color)
+            
+            # 如果选择显示分量，绘制各个分量
+            if show_duplicate_components:
+                for j, k_comp in enumerate(k_components):
+                    log_k_comp = np.log10(k_comp)
+                    all_log_k.extend(log_k_comp)
+                    
+                    comp_label = f"  └─ Channel {j+1}"
+                    ax.plot(x_data, log_k_comp, label=comp_label, 
+                           linewidth=line_width*0.6, color=color, 
+                           linestyle='--', alpha=0.5)
     
     # 设置图表格式
     if x_axis_type == "1000/T (K⁻¹)":
         ax.set_xlabel('1000/T (K⁻¹)', fontsize=12)
-        # 设置x轴范围（注意1000/T时，大T对应小x值）
         ax.set_xlim(1000.0/T_max, 1000.0/T_min)
         
         # 添加第二个x轴显示温度值
@@ -342,8 +434,8 @@ if valid_reactions:
     if show_grid:
         ax.grid(True, alpha=0.3, linestyle='--')
     
-    if show_legend and len(valid_reactions) > 0:
-        ax.legend(loc='best', framealpha=0.9)
+    if show_legend:
+        ax.legend(loc='best', framealpha=0.9, fontsize=8)
     
     # 设置Y轴范围
     if y_axis_mode == "手动设置":
@@ -353,39 +445,73 @@ if valid_reactions:
         if all_log_k:
             data_min = min(all_log_k)
             data_max = max(all_log_k)
-            margin = (data_max - data_min) * 0.1  # 10%的边距
+            margin = (data_max - data_min) * 0.1
             ax.set_ylim(data_min - margin, data_max + margin)
     
     # 显示图表
     st.pyplot(fig)
-    
-    # 显示当前Y轴范围信息
-    if y_axis_mode == "自动":
-        current_ylim = ax.get_ylim()
-        st.info(f"📏 当前Y轴范围：{current_ylim[0]:.2f} 到 {current_ylim[1]:.2f}")
     
     # 显示数据表格
     with st.expander("📋 查看详细数据"):
         # 创建数据表
         data_table = []
         for reaction in valid_reactions:
-            k_300 = calculate_rate_constant(300, reaction['A'], reaction['n'], reaction['Ea'], R_value)
-            k_1000 = calculate_rate_constant(1000, reaction['A'], reaction['n'], reaction['Ea'], R_value)
-            k_2000 = calculate_rate_constant(2000, reaction['A'], reaction['n'], reaction['Ea'], R_value)
-            
-            data_table.append({
-                '反应方程': reaction['equation'],
-                'A (指前因子)': f"{reaction['A']:.2e}",
-                'n (温度指数)': reaction['n'],
-                'Ea (cal/mol)': f"{reaction['Ea']:.2e}", 
-                '参考文献': reaction['reference'] or 'N/A',
-                'k @ 300K': f"{k_300:.2e}",
-                'log₁₀(k) @ 300K': f"{np.log10(k_300):.2f}",
-                'k @ 1000K': f"{k_1000:.2e}",
-                'log₁₀(k) @ 1000K': f"{np.log10(k_1000):.2f}",
-                'k @ 2000K': f"{k_2000:.2e}",
-                'log₁₀(k) @ 2000K': f"{np.log10(k_2000):.2f}"
-            })
+            if reaction['type'] == 'single':
+                # 单一速率反应
+                params = reaction['parameters'][0]
+                k_300 = calculate_rate_constant(300, params['A'], params['n'], params['Ea'], R_value)
+                k_1000 = calculate_rate_constant(1000, params['A'], params['n'], params['Ea'], R_value)
+                k_2000 = calculate_rate_constant(2000, params['A'], params['n'], params['Ea'], R_value)
+                
+                data_table.append({
+                    '反应方程': reaction['equation'],
+                    '类型': '单一速率',
+                    'A': f"{params['A']:.2e}",
+                    'n': f"{params['n']:.3f}",
+                    'Ea (cal/mol)': f"{params['Ea']:.0f}",
+                    '参考文献': reaction['reference'] or 'N/A',
+                    'k @ 300K': f"{k_300:.2e}",
+                    'k @ 1000K': f"{k_1000:.2e}",
+                    'k @ 2000K': f"{k_2000:.2e}"
+                })
+            else:
+                # Duplicate反应 - 各分量
+                for j, params in enumerate(reaction['parameters']):
+                    k_300 = calculate_rate_constant(300, params['A'], params['n'], params['Ea'], R_value)
+                    k_1000 = calculate_rate_constant(1000, params['A'], params['n'], params['Ea'], R_value)
+                    k_2000 = calculate_rate_constant(2000, params['A'], params['n'], params['Ea'], R_value)
+                    
+                    data_table.append({
+                        '反应方程': reaction['equation'],
+                        '类型': f'Duplicate-通道{j+1}',
+                        'A': f"{params['A']:.2e}",
+                        'n': f"{params['n']:.3f}",
+                        'Ea (cal/mol)': f"{params['Ea']:.0f}",
+                        '参考文献': reaction['reference'] or 'N/A',
+                        'k @ 300K': f"{k_300:.2e}",
+                        'k @ 1000K': f"{k_1000:.2e}",
+                        'k @ 2000K': f"{k_2000:.2e}"
+                    })
+                
+                # 总和
+                k_total_300 = sum([calculate_rate_constant(300, p['A'], p['n'], p['Ea'], R_value) 
+                                 for p in reaction['parameters']])
+                k_total_1000 = sum([calculate_rate_constant(1000, p['A'], p['n'], p['Ea'], R_value) 
+                                   for p in reaction['parameters']])
+                k_total_2000 = sum([calculate_rate_constant(2000, p['A'], p['n'], p['Ea'], R_value) 
+                                   for p in reaction['parameters']])
+                
+                data_table.append({
+                    '反应方程': reaction['equation'],
+                    '类型': 'Duplicate-总和',
+                    'A': '-',
+                    'n': '-',
+                    'Ea (cal/mol)': '-',
+                    '参考文献': reaction['reference'] or 'N/A',
+                    'k @ 300K': f"{k_total_300:.2e}",
+                    'k @ 1000K': f"{k_total_1000:.2e}",
+                    'k @ 2000K': f"{k_total_2000:.2e}"
+                })
         
         df = pd.DataFrame(data_table)
         st.dataframe(df, use_container_width=True)
@@ -400,34 +526,38 @@ if valid_reactions:
         )
     
 else:
-    st.info("👆 请输入至少一个完整的反应参数（反应方程、A、n、Ea）来查看速率常数曲线")
+    st.info("👆 请添加反应并输入完整参数来查看速率常数曲线")
 
 # 添加使用示例
 with st.expander("💡 使用示例"):
     st.markdown("""
-    **示例输入：**
+    **使用场景示例：**
     
-    | 反应方程 | A | n | Ea (cal/mol) | 参考文献 |
-    |---------|---|---|------------|----------|
-    | H + O2 = OH + O | 2.64e16 | -0.67 | 16800 | GRI-Mech 3.0 |
-    | H2 + O = H + OH | 3.87e4 | 2.7 | 6260 | Smith 2020 |
-    | NH3 + OH = NH2 + H2O | 5.0e7 | 1.6 | 955 | Miller 2019 |
-    | H2NO + HO2 = HNO + H2O2 | 5.41e4 | 2.16 | -3597 | Stagni 2023 |
-    | H2NO + O2 = HNO + HO2 | 1.73e5 | 2.19 | 18010 | Stagni 2023 |
+    假设你要对比H2NO + HO2反应的不同文献数据：
+    
+    1. **文献A (单一速率)**：
+       - 反应：H2NO + HO2 = HNO + H2O2
+       - A = 3.0e12, n = 0, Ea = 2000
+       - 参考文献：Smith 2020
+    
+    2. **文献B (Duplicate反应，两个通道)**：
+       - 反应：H2NO + HO2 = HNO + H2O2  
+       - 通道1：A = 5.41e4, n = 2.16, Ea = -3597
+       - 通道2：A = 2.60e18, n = -2.191, Ea = -455
+       - 参考文献：Stagni 2023
+    
+    这样你可以直接对比两个文献给出的总速率常数。
+    
+    **操作步骤：**
+    1. 点击"添加单一速率反应"添加文献A的数据
+    2. 点击"添加Duplicate反应"添加文献B的数据
+    3. 对于Duplicate反应，可以点击"➕通道"添加更多速率通道
+    4. 在侧边栏勾选"显示duplicate反应的各分量"可以查看各通道贡献
     
     **科学计数法输入格式：**
     - 标准格式：`2.64e16` 或 `2.64E16`
     - 乘号格式：`2.64×10^16` 或 `2.64×1016`
     - 星号格式：`2.64*10^16`
-    
-    **横轴设置：**
-    - **温度 T (K)**：直接显示温度，适合观察速率常数随温度的变化趋势
-    - **1000/T (K⁻¹)**：Arrhenius图，可以从直线斜率计算活化能，适合动力学分析
-    
-    **Y轴范围调节：**
-    - 在左侧边栏中可以选择"自动"或"手动设置"Y轴范围
-    - 自动模式会根据数据自动调整最佳显示范围
-    - 手动模式可以精确控制Y轴的显示范围
     """)
 
 # 添加公式说明
@@ -445,16 +575,21 @@ with st.expander("📚 公式说明"):
     - Ea: 活化能 (cal/mol)
     - R: 理想气体常数 (1.987 cal/(mol·K))
     
-    **对数形式：**
+    **Duplicate反应：**
     
-    $$\\log_{10}(k) = \\log_{10}(A) + n\\log_{10}(T) - \\frac{E_a}{2.303RT}$$
+    当同一个反应有多个速率通道时（如通过不同过渡态）：
     
-    **Arrhenius图（1000/T为横轴）：**
+    $$k_{total} = k_1 + k_2 + ... + k_n$$
     
-    当 n = 0 时，以 1000/T 为横轴，log₁₀(k) 为纵轴，可得到直线：
+    每个通道有独立的Arrhenius参数：
+    $$k_i = A_i T^{n_i} \\exp\\left(-\\frac{E_{a,i}}{RT}\\right)$$
     
-    $$\\log_{10}(k) = \\log_{10}(A) - \\frac{E_a}{2.303R} \\cdot \\frac{1000}{T} \\cdot \\frac{1}{1000}$$
+    **为什么需要Duplicate反应？**
     
-    从直线斜率可以计算活化能：
-    $$E_a = -2.303R \\times 1000 \\times \\text{斜率}$$
+    在某些情况下，同一个反应可能通过多个不同的反应路径进行：
+    - 不同的过渡态
+    - 不同的反应机理
+    - 不同的自旋态
+    
+    每个路径有自己的活化能和指前因子，总的反应速率是所有路径的总和。
     """)
