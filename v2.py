@@ -17,6 +17,28 @@ st.set_page_config(
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
+# 定义线型和标记样式选项
+LINE_STYLES = {
+    '实线': '-',
+    '虚线': '--',
+    '点线': ':',
+    '点划线': '-.',
+}
+
+MARKER_STYLES = {
+    '无': '',
+    '圆形': 'o',
+    '方形': 's',
+    '三角形(上)': '^',
+    '三角形(下)': 'v',
+    '菱形': 'D',
+    '五边形': 'p',
+    '六边形': 'h',
+    '加号': '+',
+    '叉号': 'x',
+    '星形': '*',
+}
+
 def parse_scientific_notation(text):
     """
     解析科学计数法
@@ -73,8 +95,10 @@ def calculate_rate_constant(T, A, n, Ea, R=1.987):
 
 def generate_color(index):
     """生成不同的颜色"""
-    cmap = plt.get_cmap('tab10')
-    return cmap(index % 10)
+    # 使用更多样的颜色
+    colors_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                   '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    return colors_list[index % len(colors_list)]
 
 # 主界面
 st.title("🧪 化学反应速率常数计算器")
@@ -152,6 +176,14 @@ with st.sidebar:
     show_grid = st.checkbox("显示网格", value=True)
     show_legend = st.checkbox("显示图例", value=True)
     line_width = st.slider("线条宽度", min_value=1, max_value=5, value=2)
+    marker_size = st.slider("标记大小", min_value=0, max_value=15, value=6)
+    marker_frequency = st.slider(
+        "标记密度", 
+        min_value=1, 
+        max_value=50, 
+        value=10,
+        help="每隔多少个数据点显示一个标记"
+    )
 
 # 初始化session state
 if 'reactions' not in st.session_state:
@@ -164,9 +196,7 @@ st.markdown("""
 **输入说明:**
 - 点击"添加单一速率反应"添加普通反应（一组A、n、Ea参数）
 - 点击"添加Duplicate反应"添加具有多个速率通道的反应（多组A、n、Ea参数）
-- A: 指前因子（支持科学计数法，如 1.5e13, 1.5×10^13）
-- n: 温度指数
-- Ea: 活化能 (cal/mol)
+- 可以为每个反应自定义线型和标记样式
 """)
 
 # 添加反应按钮
@@ -177,7 +207,10 @@ with col1:
             'type': 'single',
             'equation': '',
             'reference': '',
-            'parameters': [{'A': '', 'n': '', 'Ea': ''}]
+            'parameters': [{'A': '', 'n': '', 'Ea': ''}],
+            'line_style': '实线',
+            'marker_style': '无',
+            'custom_color': None
         })
         st.rerun()
 
@@ -187,36 +220,16 @@ with col2:
             'type': 'duplicate',
             'equation': '',
             'reference': '',
-            'parameters': [{'A': '', 'n': '', 'Ea': ''}, {'A': '', 'n': '', 'Ea': ''}]
+            'parameters': [{'A': '', 'n': '', 'Ea': ''}, {'A': '', 'n': '', 'Ea': ''}],
+            'line_style': '实线',
+            'marker_style': '无',
+            'custom_color': None
         })
         st.rerun()
 
 # 显示所有反应
 for i, reaction in enumerate(st.session_state.reactions):
-    with st.container():
-        # 反应标题栏
-        col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
-        
-        with col1:
-            if reaction['type'] == 'single':
-                st.markdown(f"**反应 {i+1}** (单一速率)")
-            else:
-                st.markdown(f"**反应 {i+1}** (Duplicate - {len(reaction['parameters'])}个通道)")
-        
-        with col2:
-            pass
-        
-        with col3:
-            if reaction['type'] == 'duplicate':
-                if st.button("➕通道", key=f"add_channel_{i}", help="添加新的速率通道"):
-                    reaction['parameters'].append({'A': '', 'n': '', 'Ea': ''})
-                    st.rerun()
-        
-        with col4:
-            if st.button("🗑️", key=f"del_reaction_{i}", help="删除整个反应"):
-                st.session_state.reactions.pop(i)
-                st.rerun()
-        
+    with st.expander(f"**反应 {i+1}** - {reaction.get('equation', '未命名')} ({'Duplicate' if reaction['type'] == 'duplicate' else '单一速率'})", expanded=True):
         # 反应方程和参考文献
         col1, col2 = st.columns([3, 2])
         with col1:
@@ -234,7 +247,41 @@ for i, reaction in enumerate(st.session_state.reactions):
                 placeholder="Smith 2020"
             )
         
+        # 显示样式设置
+        st.markdown("**显示样式：**")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            reaction['line_style'] = st.selectbox(
+                "线型",
+                options=list(LINE_STYLES.keys()),
+                index=list(LINE_STYLES.keys()).index(reaction.get('line_style', '实线')),
+                key=f"line_style_{i}"
+            )
+        with col2:
+            reaction['marker_style'] = st.selectbox(
+                "标记",
+                options=list(MARKER_STYLES.keys()),
+                index=list(MARKER_STYLES.keys()).index(reaction.get('marker_style', '无')),
+                key=f"marker_style_{i}"
+            )
+        with col3:
+            # 颜色选择
+            use_custom_color = st.checkbox("自定义颜色", key=f"use_color_{i}")
+            if use_custom_color:
+                reaction['custom_color'] = st.color_picker(
+                    "选择颜色",
+                    value=reaction.get('custom_color', generate_color(i)),
+                    key=f"color_{i}"
+                )
+            else:
+                reaction['custom_color'] = None
+        with col4:
+            if st.button("🗑️ 删除反应", key=f"del_reaction_{i}"):
+                st.session_state.reactions.pop(i)
+                st.rerun()
+        
         # 速率参数
+        st.markdown("**速率参数：**")
         if reaction['type'] == 'single':
             # 单一速率反应
             col1, col2, col3 = st.columns(3)
@@ -261,11 +308,10 @@ for i, reaction in enumerate(st.session_state.reactions):
                 )
         else:
             # Duplicate反应
-            st.markdown("**速率通道：**")
             for j, params in enumerate(reaction['parameters']):
-                col0, col1, col2, col3, col4 = st.columns([0.5, 2.5, 2, 2, 1])
+                col0, col1, col2, col3, col4 = st.columns([1, 3, 2.5, 2.5, 1])
                 with col0:
-                    st.write(f"{j+1}.")
+                    st.write(f"通道 {j+1}")
                 with col1:
                     params['A'] = st.text_input(
                         f"A",
@@ -292,11 +338,14 @@ for i, reaction in enumerate(st.session_state.reactions):
                     )
                 with col4:
                     if len(reaction['parameters']) > 1:
-                        if st.button("❌", key=f"del_param_{i}_{j}", help="删除此通道"):
+                        if st.button("❌", key=f"del_param_{i}_{j}"):
                             reaction['parameters'].pop(j)
                             st.rerun()
-        
-        st.divider()
+            
+            # 添加通道按钮
+            if st.button("➕ 添加通道", key=f"add_channel_{i}"):
+                reaction['parameters'].append({'A': '', 'n': '', 'Ea': ''})
+                st.rerun()
 
 # 计算和绘图
 st.header("📊 反应速率常数对比")
@@ -325,7 +374,10 @@ for reaction in st.session_state.reactions:
                 'type': reaction['type'],
                 'equation': reaction['equation'],
                 'reference': reaction['reference'],
-                'parameters': valid_params
+                'parameters': valid_params,
+                'line_style': reaction.get('line_style', '实线'),
+                'marker_style': reaction.get('marker_style', '无'),
+                'custom_color': reaction.get('custom_color', None)
             })
 
 if valid_reactions:
@@ -340,7 +392,15 @@ if valid_reactions:
     
     # 计算并绘制每个反应
     for i, reaction in enumerate(valid_reactions):
-        color = generate_color(i)
+        # 确定颜色
+        if reaction['custom_color']:
+            color = reaction['custom_color']
+        else:
+            color = generate_color(i)
+        
+        # 获取线型和标记
+        line_style = LINE_STYLES[reaction['line_style']]
+        marker_style = MARKER_STYLES[reaction['marker_style']]
         
         if reaction['type'] == 'single':
             # 单一速率反应
@@ -361,7 +421,17 @@ if valid_reactions:
                 x_data = T
             
             # 绘制曲线
-            ax.plot(x_data, log_k, label=label, linewidth=line_width, color=color)
+            if marker_style:
+                # 带标记的曲线
+                ax.plot(x_data[::marker_frequency], log_k[::marker_frequency], 
+                       marker=marker_style, markersize=marker_size,
+                       linestyle='', color=color, label='_nolegend_')
+                ax.plot(x_data, log_k, label=label, linewidth=line_width, 
+                       color=color, linestyle=line_style)
+            else:
+                # 只有线条
+                ax.plot(x_data, log_k, label=label, linewidth=line_width, 
+                       color=color, linestyle=line_style)
             
         else:
             # Duplicate反应
@@ -388,7 +458,17 @@ if valid_reactions:
                 x_data = T
             
             # 绘制总速率常数
-            ax.plot(x_data, log_k_total, label=label, linewidth=line_width, color=color)
+            if marker_style:
+                # 带标记的曲线
+                ax.plot(x_data[::marker_frequency], log_k_total[::marker_frequency], 
+                       marker=marker_style, markersize=marker_size,
+                       linestyle='', color=color, label='_nolegend_')
+                ax.plot(x_data, log_k_total, label=label, linewidth=line_width, 
+                       color=color, linestyle=line_style)
+            else:
+                # 只有线条
+                ax.plot(x_data, log_k_total, label=label, linewidth=line_width, 
+                       color=color, linestyle=line_style)
             
             # 如果选择显示分量，绘制各个分量
             if show_duplicate_components:
@@ -399,7 +479,7 @@ if valid_reactions:
                     comp_label = f"  └─ Channel {j+1}"
                     ax.plot(x_data, log_k_comp, label=comp_label, 
                            linewidth=line_width*0.6, color=color, 
-                           linestyle='--', alpha=0.5)
+                           linestyle=':', alpha=0.5)
     
     # 设置图表格式
     if x_axis_type == "1000/T (K⁻¹)":
@@ -470,6 +550,8 @@ if valid_reactions:
                     'n': f"{params['n']:.3f}",
                     'Ea (cal/mol)': f"{params['Ea']:.0f}",
                     '参考文献': reaction['reference'] or 'N/A',
+                    '线型': reaction['line_style'],
+                    '标记': reaction['marker_style'],
                     'k @ 300K': f"{k_300:.2e}",
                     'k @ 1000K': f"{k_1000:.2e}",
                     'k @ 2000K': f"{k_2000:.2e}"
@@ -488,6 +570,8 @@ if valid_reactions:
                         'n': f"{params['n']:.3f}",
                         'Ea (cal/mol)': f"{params['Ea']:.0f}",
                         '参考文献': reaction['reference'] or 'N/A',
+                        '线型': '-',
+                        '标记': '-',
                         'k @ 300K': f"{k_300:.2e}",
                         'k @ 1000K': f"{k_1000:.2e}",
                         'k @ 2000K': f"{k_2000:.2e}"
@@ -508,6 +592,8 @@ if valid_reactions:
                     'n': '-',
                     'Ea (cal/mol)': '-',
                     '参考文献': reaction['reference'] or 'N/A',
+                    '线型': reaction['line_style'],
+                    '标记': reaction['marker_style'],
                     'k @ 300K': f"{k_total_300:.2e}",
                     'k @ 1000K': f"{k_total_1000:.2e}",
                     'k @ 2000K': f"{k_total_2000:.2e}"
@@ -533,26 +619,28 @@ with st.expander("💡 使用示例"):
     st.markdown("""
     **使用场景示例：**
     
-    假设你要对比H2NO + HO2反应的不同文献数据：
+    对比多个文献中同一反应的速率常数时，可以使用不同的线型和标记来区分：
     
     1. **文献A (单一速率)**：
        - 反应：H2NO + HO2 = HNO + H2O2
-       - A = 3.0e12, n = 0, Ea = 2000
+       - 线型：实线，标记：圆形
        - 参考文献：Smith 2020
     
-    2. **文献B (Duplicate反应，两个通道)**：
+    2. **文献B (Duplicate反应)**：
        - 反应：H2NO + HO2 = HNO + H2O2  
-       - 通道1：A = 5.41e4, n = 2.16, Ea = -3597
-       - 通道2：A = 2.60e18, n = -2.191, Ea = -455
+       - 线型：虚线，标记：三角形
        - 参考文献：Stagni 2023
     
-    这样你可以直接对比两个文献给出的总速率常数。
+    3. **文献C (单一速率)**：
+       - 反应：H2NO + HO2 = HNO + H2O2
+       - 线型：点划线，标记：方形
+       - 参考文献：Miller 2019
     
-    **操作步骤：**
-    1. 点击"添加单一速率反应"添加文献A的数据
-    2. 点击"添加Duplicate反应"添加文献B的数据
-    3. 对于Duplicate反应，可以点击"➕通道"添加更多速率通道
-    4. 在侧边栏勾选"显示duplicate反应的各分量"可以查看各通道贡献
+    **样式设置技巧：**
+    - 使用不同线型区分不同来源（实线、虚线、点线、点划线）
+    - 使用标记符号强调重要数据点
+    - 自定义颜色用于特定分组
+    - 调整标记密度避免图表过于拥挤
     
     **科学计数法输入格式：**
     - 标准格式：`2.64e16` 或 `2.64E16`
@@ -577,19 +665,9 @@ with st.expander("📚 公式说明"):
     
     **Duplicate反应：**
     
-    当同一个反应有多个速率通道时（如通过不同过渡态）：
-    
+    当同一个反应有多个速率通道时：
     $$k_{total} = k_1 + k_2 + ... + k_n$$
     
     每个通道有独立的Arrhenius参数：
     $$k_i = A_i T^{n_i} \\exp\\left(-\\frac{E_{a,i}}{RT}\\right)$$
-    
-    **为什么需要Duplicate反应？**
-    
-    在某些情况下，同一个反应可能通过多个不同的反应路径进行：
-    - 不同的过渡态
-    - 不同的反应机理
-    - 不同的自旋态
-    
-    每个路径有自己的活化能和指前因子，总的反应速率是所有路径的总和。
     """)
